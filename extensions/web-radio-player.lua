@@ -15,37 +15,21 @@
 
 --]]
 
--- High Contrast - Racing Green
+local string, os, utils, core = 
+  require('string'), require('os'), require('wrp-utils'), nil
 
--- get the token http://ws.audioscrobbler.com/2.0/?method=auth.gettoken&api_key=71e3c271bf0cb0f938a996628566b546&format=json
---   >> {"token":"5e07d50cbc08171c576a1964a142b835"}
-
--- get user authorization http://www.last.fm/api/auth/?api_key=xxxxxxxxxxx&token=xxxxxxxx
--- wait for browser to close
-
--- get session http://www.lastfm.com.br/api/show/auth.getSession
-
--- session call       = api_keyxxxxxxxxmethodauth.getSessiontokenxxxxxxx
--- api signature call = echo "api_keyxxxxxxxxxxxxmethodauth.getSessiontokenxxxxxxxxxxxxxxmysecret"
-
--- load libraries
-
-local st, os, io, co, tb, json, utils = 
-  require('string'), require('os'), require('io'), require('coroutine'), require('table'), require('json'), require('wrp-utils')
 
 local stations = {
-  { name = "Ska",                 url = "http://listen.sky.fm/public1/ska.pls" },
-  { name = "Drum & Bass",         url = "http://listen.di.fm/public2/drumandbass.pls" },
-  { name = "liquid DnB",          url = "http://listen.di.fm/public2/liquiddnb.pls" },
-  { name = "Metal",               url = "http://listen.sky.fm/public1/metal.pls" },
-  { name = "Moder Rock",          url = "http://listen.sky.fm/public1/modernrock.pls" },
-  { name = "Smooth Jazz",         url = "http://listen.sky.fm/public1/smoothjazz.pls"},
-  { name = "Uptempo Smooth Jazz", url = "http://listen.sky.fm/public1/uptemposmoothjazz.pls"},
+  { name = "Ska",         url = "http://listen.sky.fm/public1/ska.pls" },
+  { name = "Drum & Bass", url = "http://listen.di.fm/public2/drumandbass.pls" },
+  { name = "liquid DnB",  url = "http://listen.di.fm/public2/liquiddnb.pls" },
+  { name = "Metal",       url = "http://listen.sky.fm/public1/metal.pls" },
+  { name = "Modern Rock", url = "http://listen.sky.fm/public1/modernrock.pls" }
 }
 
 --
-local dlg, last_fm, pidgin, auth_state, app =
-  nil, nil, nil, false, {}
+local dlg, last_fm, pidgin, auth_state, play_count =
+  nil, nil, nil, false, 0
 
 function descriptor()
   return { 
@@ -58,11 +42,11 @@ end
 
 function activate()
   --
-  utils:cfg_load(app)
+  core    = utils:new()
   --
   dlg     = vlc.dialog("Web Radio")
-  last_fm = dlg:add_button((app.last_fm.authorized and "scrobbling" or "scrobble ?"), click_authorize, 1, 1, 1, 1)
-  pidgin  = dlg:add_button((app.pidgin.should_change and "notifying" or "notify ?"), click_notify, 2, 1, 1, 1)
+  last_fm = dlg:add_button((core.last_fm.authorized and "scrobbling" or "scrobble ?"), click_authorize, 1, 1, 1, 1)
+  pidgin  = dlg:add_button((core.pidgin.should_change and "notifying" or "notify ?"), click_notify, 2, 1, 1, 1)
   list    = dlg:add_list(1, 3, 4, 1)
   play    = dlg:add_button("Play", click_play, 1, 4, 4, 1)
   -- add stations
@@ -70,10 +54,10 @@ function activate()
     list:add_value(details.name, idx)
   end
 
-  utils:get_pidgin_defaults(app.pidgin)
+  core:get_pidgin_defaults()
 
-  utils:debug("activate")
-  utils:debug(app)
+  core:debug("activate")
+  core:debug(core)
   dlg:show()
 end
 
@@ -82,33 +66,33 @@ end
 -- *********************
 -- check if user authorized this app
 function auth_callback(data, msg)
-  utils:debug("authorized?")
-  utils:debug(data)
+  core:debug("authorized?")
+  core:debug(data)
   if not data then
-    utils:debug('no data in authorization callback')
-    app.last_fm.authorized = false
-    auth_state             = false
+    core:debug('no data in authorization callback')
+    core.last_fm.authorized = false
+    auth_state              = false
     return
   end
 
   if data.error then
-    utils:debug('error in authorization callback ... '..data.error)
+    core:debug('error in authorization callback ... '..data.error)
     if data.error==4 or data.error==15 or data.error==14 then
-      app.last_fm.token = ''
-      auth_state        = false
+      core.last_fm.token = ''
+      auth_state         = false
       last_fm:set_text('scrobble ?')
     else
       auth_state = false
     end
-    app.last_fm.authorized = false
+    core.last_fm.authorized = false
     return
   end
 
   if data.session then
-    app.last_fm.session.user = data.session.name
-    app.last_fm.session.key  = data.session.key
-    app.last_fm.authorized   = true
-    auth_state               = true
+    core.last_fm.session.user = data.session.name
+    core.last_fm.session.key  = data.session.key
+    core.last_fm.authorized   = true
+    auth_state                = true
     last_fm:set_text('scrobbling')
   end
 end
@@ -116,23 +100,23 @@ end
 -- token callback
 function token_callback(data, msg)
   if not data or data.error then
-    app.last_fm.token = ''
+    core.last_fm.token = ''
     auth_state        = false
     last_fm:set_text('scrobble ?')
     return
   end
 
   os.execute(
-    st.format(
+    string.format(
       'exec $(which firefox || which google-chrome || which chromium-browser) "%s?api_key=%s&token=%s">/dev/null & echo $!',
-      app.last_fm.auth_point,
-      app.last_fm.key,
+      core.last_fm.auth_point,
+      core.last_fm.key,
       data.token
     )
   )
 
-  app.last_fm.token = data.token
-  auth_state        = false
+  core.last_fm.token = data.token
+  auth_state         = false
   last_fm:set_text('authorized ?')
 end
 
@@ -150,57 +134,53 @@ function click_play()
   vlc.playlist.clear()
   vlc.playlist.add({{path=details.url, title=details.name, name=details.name}})
   vlc.playlist.play()
-  utils:debug('clicked')
+  core:debug('clicked')
 end
 
 function click_notify()
-  app.pidgin.should_change = true
+  core.pidgin.should_change = true
   pidgin:set_text("notifying")
 end
 
 function click_authorize()
-  utils:debug('click_authorize')
-  utils:debug(auth_state, app.last_fm.token)
+  core:debug('click_authorize')
+  core:debug(auth_state, core.last_fm.token)
   if auth_state then
-    utils:debug('auth_state')
+    core:debug('auth_state')
     return
   end  
 
-  if app.last_fm.token~='' then
+  if core.last_fm.token~='' then
     -- next stage, check if user autorized
-    utils:debug('next stage, check if user autorized')
+    core:debug('next stage, check if user autorized')
     auth_state = true
-    utils:fetch(
-        st.format(
-            "%s?method=%s&api_key=%s&api_sig=%s&token=%s&format=%s",
-            app.last_fm.base_point,
-            'auth.getSession',
-            app.last_fm.key,
-            utils:md5(
-                st.format(
-                    "api_key%smethodauth.getSessiontoken%s%s",
-                    app.last_fm.key,
-                    app.last_fm.token,
-                    app.last_fm.secret
-                  )
-              ),
-            app.last_fm.token,
-            'json'
-          ), 
+    --
+    core:fetch(
+        core.last_fm.base_point ..'?'..
+        core:build_query(
+          {
+            method  = 'auth.getSession',
+            token   = core.last_fm.token,
+            api_key = core.last_fm.key,
+            format  = 'json'
+          }, 
+          core.last_fm.secret
+        ),
         auth_callback
       )
-  elseif not auth_state and app.last_fm.token=='' then
+  elseif not auth_state and core.last_fm.token=='' then
     -- fetch token
-    utils:debug('fetch token')
+    core:debug('fetch token')
     auth_state = true
-    utils:fetch(
-      st.format(
-          "%s?method=%s&api_key=%s&format=%s", 
-            app.last_fm.base_point,
-            'auth.gettoken',
-            app.last_fm.key, 
-            'json'
-          ),
+    core:fetch(
+        core.last_fm.base_point ..'?'..
+        core:build_query(
+          {
+            method  = 'auth.gettoken',
+            api_key = core.last_fm.key,
+            format  = 'json'
+          }
+        ),
         token_callback
       )
   end
@@ -213,79 +193,61 @@ function meta_changed()
   if metas.now_playing then
     local artist, song = nil, nil
     
-    artist, song = st.match(metas.now_playing, "%s*(.-)%s+%-%s+(.-)%s*$")
+    artist, song = string.match(metas.now_playing, "%s*(.-)%s+%-%s+(.-)%s*$")
     if not artist or not song then
-      artist, song = st.match(metas.now_playing, "%s*(.-)%s*%-%s*(.-)%s*$")
+      artist, song = string.match(metas.now_playing, "%s*(.-)%s*%-%s*(.-)%s*$")
     end
 
-    if app.meta.current.song==song and app.meta.current.artist==artist then
+    if core.meta.current.song==song and core.meta.current.artist==artist then
       return
     end
 
-    app.meta.last.song      = app.meta.current.song
-    app.meta.last.artist    = app.meta.current.artist
-    app.meta.current.song   = song
-    app.meta.current.artist = artist
+    core.meta.last.song      = core.meta.current.song
+    core.meta.last.artist    = core.meta.current.artist
+    core.meta.current.song   = song
+    core.meta.current.artist = artist
 
     if song and artist then
       vlc.input.item():set_meta('title',  song)
       vlc.input.item():set_meta('artist', artist)
 
       -- change pidgin message
-      if app.pidgin.should_change then
-        utils:set_pidgin(st.format('%s - %s', song, artist))
+      if core.pidgin.should_change then
+        core:set_pidgin(string.format('%s - %s', song, artist))
       end
 
       -- now playing, scrobble
-      if app.last_fm.authorized then
-        local now_playing_signature = utils:md5(
-                st.format(
-                    "api_key%sartist%smethodtrack.updateNowPlayingsk%strack%s%s",
-                    app.last_fm.key,
-                    utils:escape(artist),
-                    app.last_fm.session.key,
-                    utils:escape(song),
-                    app.last_fm.secret
-                  )
-              )
-
-        --
-        local to_send = st.format(
-              "curl -X POST %s?method=track.updateNowPlaying&api_key=%s&track=%s&artist=%s" ..
-                "&format=json&sk=%s&api_sig=%s",
-              app.last_fm.base_point,
-              app.last_fm.key,
-              utils:escape(song),
-              utils:escape(artist),
-              app.last_fm.session.key,
-              now_playing_signature
-            )
-        utils:debug(to_send)
-        os.execute(to_send)
+      if core.last_fm.authorized then
+        if play_count>0 then
+          core:scrobbler_scrobble(function(a,b) core:debug(':: scrobble ::') core:debug(a) core:debug(b) end)
+        end
+        core:scrobbler_now_playing(function(a,b) core:debug(':: now playing ::') core:debug(a) core:debug(b) end)
       end
+
+      play_count = play_count + 1
     end
 
-    utils:debug(' meta changed ...')
+    core:debug(' meta changed ...')
   end
 end
 
 function parse()
-  utils:debug(' parse')
+  core:debug(' parse')
 end
 
 function probe()
-  utils:debug(' probe')
+  core:debug(' probe')
 end
 
 function deactivate()
-  if app.pidgin.should_change then
-    utils:set_pidgin_defaults(app.pidgin)
+  if core.pidgin.should_change then
+    core:set_pidgin_defaults()
   end
-  utils:cfg_save(app)
-  utils:debug(' deactive')
+  core:unload()
+  core:debug(' deactive')
 end
 
 function close()
-  utils:debug(' close')
+  core:debug(' close')
   vlc.deactivate()
 end
